@@ -8,5 +8,9 @@ Release based on tag `v1.0.0` from the original [repo](https://gitlab.opencode.d
 
 ## Infrastructure
 
-- kind
-- ingress-nginx 1.11.2 [Link](https://github.com/kubernetes/ingress-nginx/blob/c9d33b75d52de3f83fd49d37c85aa97618a5143b/deploy/static/provider/kind/deploy.yaml)
+- docker
+- kubectl v1.30.0
+- kind v0.24.0
+- ingress-nginx v1.11.2 [Link](https://github.com/kubernetes/ingress-nginx/blob/c9d33b75d52de3f83fd49d37c85aa97618a5143b/deploy/static/provider/kind/deploy.yaml)
+- helm + helmdiff + helmfile (v0.167.1)
+- cert-manager (letsencrypt)
