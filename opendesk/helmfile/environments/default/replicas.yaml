@@ -1,0 +1,192 @@
+# SPDX-FileCopyrightText: 2023 Bundesministerium des Innern und für Heimat, PG ZenDiS "Projektgruppe für Aufbau ZenDiS"
+# SPDX-License-Identifier: Apache-2.0
+---
+# This file contains annotations to (later) generate parts of "docs/scaling.md".
+# When adding new components in here, do not forget to add them as well to
+# `../test/values.yaml.gotmpl` to ensure their linting coverage.
+replicas:
+  # -- component: Antivirus (ClamAV)
+  # -- scalable: true
+  # -- comment: clamav-simple - supports `ReadWriteOnce` PVCs.
+  clamav: 1
+  # -- scalable: true
+  # -- comment: clamav-distributed - requires `ReadWriteMany` PVCs.
+  clamd: 1
+  # -- scalable: true
+  # -- comment: clamav-distributed - You do not want to scale this service, as it just updates the signature files
+  # centrally an should be a singleton.
+  freshclam: 1
+  # -- scalable: true
+  # -- comment: clamav-distributed - requires `ReadWriteMany` PVCs.
+  icap: 1
+  # -- scalable: true
+  # -- comment: clamav-distributed - requires `ReadWriteMany` PVCs.
+  milter: 1
+
+  # -- component: Weboffice (Collabora)
+  # -- scalable: true
+  collabora: 1
+
+  # -- component: Pad (CryptPad)
+  # -- scalable: false
+  cryptpad: 1
+
+  # -- component: Groupware (OX AppSuite, OX Dovecot etc.)
+  # -- scalable: false
+  # -- comment: Scalable in openDesk Enterprise only
+  dovecot: 1
+  # -- scalable: false
+  postfix: 1
+  # -- scalable: true
+  dkimpy: 1
+
+  # -- component: Chat (Element, Synapse)
+  # -- scalable: true
+  element: 1
+  # -- scalable: tbd
+  matrixNeoBoardWidget: 1
+  # -- scalable: tbd
+  matrixNeoChoiceWidget: 1
+  # -- scalable: tbd
+  matrixNeoDateFixBot: 1
+  # -- scalable: tbd
+  matrixNeoDateFixWidget: 1
+  # -- scalable: tbd
+  matrixUserVerificationService: 1
+  # -- scalable: tbd
+  synapse: 1
+  # -- scalable: true
+  synapseWeb: 1
+  # -- scalable: true
+  wellKnown: 1
+
+  # -- component: IAM (Nubus)
+  # -- scalable: true
+  intercomService: 1
+  # -- scalable: true
+  keycloak: 1
+  # -- scalable: false
+  # -- comment: Will be removed soon.
+  oxConnector: 1
+  # -- scalable: tbd
+  umsGuardianAuthorizationApi: 1
+  # -- scalable: tbd
+  umsGuardianManagementApi: 1
+  # -- scalable: tbd
+  umsGuardianManagementUi: 1
+  # -- scalable: tbd
+  umsGuardianOpenPolicyAgent: 1
+  # -- scalable: tbd
+  umsKeycloak: 1
+  # -- scalable: false
+  # -- comment: Should not be scaled, is an async process.
+  umsKeycloakExtensionsHandler: 1
+  # -- scalable: true
+  umsKeycloakExtensionsProxy: 1
+  # -- scalable: tbd
+  umsLdapNotifier: 1
+  # -- scalable: false
+  # -- comment: Experimental feature and not supported.
+  umsLdapServerPrimary: 1
+  # -- scalable: true
+  umsLdapServerSecondary: 1
+  # -- scalable: true
+  umsLdapServerProxy: 1
+  # -- scalable: tbd
+  umsNotificationsApi: 1
+  # -- scalable: true
+  umsPortalFrontend: 1
+  # -- scalable: false
+  umsPortalConsumer: 1
+  # -- scalable: true
+  umsPortalServer: 1
+  # -- scalable: tdb
+  umsProvisioningApi: 1
+  # -- scalable: false
+  umsProvisioningDispatcher: 1
+  # -- scalable: tdb
+  umsProvisioningNats: 1
+  # -- scalable: tdb
+  umsProvisioningPrefill: 1
+  # -- scalable: false
+  umsProvisioningUdmTransformer: 1
+  # -- scalable: tbd
+  umsSelfserviceConsumer: 1
+  # -- scalable: true
+  umsUdmListener: 1
+  # -- scalable: tbd
+  umsUdmRestApi: 1
+  # -- scalable: tbd
+  umsUmcGateway: 1
+  # -- scalable: tbd
+  umsUmcServer: 1
+  # -- scalable: tbd
+  umsUmcServerProxy: 1
+
+  # -- component: Video conference (Jitsi)
+  # -- scalable: tbd
+  jibri: 1
+  # -- scalable: tbd
+  jicofo: 1
+  # -- scalable: tbd
+  jitsi: 1
+  # -- scalable: tbd
+  jitsiKeycloakAdapter: 1
+  # -- scalable: tbd
+  jvb: 1
+
+  # -- component: Persistence Layer
+  # -- scalable: false
+  mariadb: 1
+  # -- scalable: false
+  memcached: 1
+  # -- scalable: true
+  minio: 1
+  # -- scalable: false
+  postgres: 1
+  # -- scalable: tbd
+  redis: 1
+
+  # -- component: Filestore (Nextcloud)
+  # -- scalable: true
+  nextcloud: 1
+  # -- scalable: true
+  nextcloudExporter: 1
+
+  # -- component: Project management (OpenProject)
+  # -- scalable: true
+  openprojectWeb: 1
+  # -- scalable: true
+  # -- comment: Async service working on processing queue content. Can work on queues in parallel (when needed). Check
+  # https://www.openproject.org/docs/installation-and-operations/installation/helm-chart/ for details, as e.g.
+  # dedicated workers for specific queues are possible with OpenProject.
+  openprojectWorker: 1
+
+  # -- component: Groupware (OX Appsuite)
+  # -- scalable: tbd
+  openxchangeCoreDocumentConverter: 1
+  # -- scalable: tbd
+  openxchangeCoreGuidedtours: 1
+  # -- scalable: tbd
+  openxchangeCoreImageConverter: 1
+  # -- scalable: tbd
+  openxchangeCoreMW: 1
+  # -- scalable: tbd
+  openxchangeCoreUI: 1
+  # -- scalable: tbd
+  openxchangeCoreUIMiddleware: 1
+  # -- scalable: tbd
+  openxchangeCoreUserGuide: 1
+  # -- scalable: tbd
+  openxchangeGotenberg: 1
+  # -- scalable: tbd
+  openxchangeGuardUI: 1
+  # -- scalable: tbd
+  openxchangeNextcloudIntegrationUI: 1
+  # -- scalable: tbd
+  openxchangePublicSectorUI: 1
+
+  # -- component: Knowledge management (XWiki)
+  # -- scalable: false
+  xwiki: 1
+...

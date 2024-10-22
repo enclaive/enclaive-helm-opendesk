@@ -1,0 +1,134 @@
+{{/*
+SPDX-FileCopyrightText: 2024 Zentrum für Digitale Souveränität der Öffentlichen Verwaltung (ZenDiS) GmbH
+SPDX-FileCopyrightText: 2023 Bundesministerium des Innern und für Heimat, PG ZenDiS "Projektgruppe für Aufbau ZenDiS"
+SPDX-License-Identifier: Apache-2.0
+*/}}
+---
+autoscaling:
+  enabled: false
+
+collabora:
+  extra_params: >
+    --o:ssl.enable=false
+    --o:ssl.termination=true
+    --o:fetch_update_check=0
+    --o:remote_font_config.url=https://{{ .Values.global.hosts.nextcloud }}.{{ .Values.global.domain }}/apps/richdocuments/settings/fonts.json
+    --o:net.proto={{ if eq .Values.cluster.networking.ipFamilies "DualStack" }}all{{ else }}{{ .Values.cluster.networking.ipFamilies }}{{ end }}
+
+  username: "collabora-internal-admin"
+  password: {{ .Values.secrets.collabora.adminPassword | quote }}
+  aliasgroups:
+    - host: "https://{{ .Values.global.hosts.nextcloud }}.{{ .Values.global.domain }}"
+
+fullnameOverride: "collabora"
+
+grafana:
+  dashboards:
+    enabled: {{ .Values.monitoring.grafana.dashboards.enabled }}
+    labels:
+      {{ .Values.monitoring.grafana.dashboards.labels | toYaml | nindent 6 }}
+    annotations:
+      {{ .Values.monitoring.grafana.dashboards.annotations | toYaml | nindent 6 }}
+
+image:
+  repository: "{{ coalesce .Values.repositories.image.registryOpencodeDe .Values.global.imageRegistry .Values.images.collabora.registry }}/{{ .Values.images.collabora.repository }}"
+  tag: {{ .Values.images.collabora.tag | quote }}
+  pullPolicy: {{ .Values.global.imagePullPolicy | quote }}
+
+imagePullSecrets:
+{{- range .Values.global.imagePullSecrets }}
+  - name: {{ . | quote }}
+{{- end }}
+
+ingress:
+  annotations:
+    # Ingress NGINX
+    nginx.ingress.kubernetes.io/upstream-hash-by: "$arg_WOPISrc"
+    nginx.ingress.kubernetes.io/proxy-body-size: "{{ .Values.ingress.parameters.bodySize.collabora }}"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "{{ .Values.ingress.parameters.bodyTimeout.collabora }}"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "{{ .Values.ingress.parameters.bodyTimeout.collabora }}"
+    nginx.ingress.kubernetes.io/server-snippet: |
+      # block admin and metrics endpoint from outside by default
+      location /cool/getMetrics { deny all; return 403; }
+      location /cool/adminws/ { deny all; return 403; }
+      location /browser/dist/admin/admin.html { deny all; return 403; }
+    # NGINX
+    nginx.org/websocket-services: "collabora"
+    nginx.org/lb-method: "hash $arg_WOPISrc consistent"
+    nginx.org/proxy-read-timeout: "{{ .Values.ingress.parameters.bodyTimeout.collabora }}s"
+    nginx.org/proxy-send-timeout: "{{ .Values.ingress.parameters.bodyTimeout.collabora }}s"
+    nginx.org/client-max-body-size: "{{ .Values.ingress.parameters.bodySize.collabora }}"
+    nginx.org/server-snippets: |
+      # block admin and metrics endpoint from outside by default
+      location /cool/getMetrics { deny all; return 403; }
+      location /cool/adminws/ { deny all; return 403; }
+      location /browser/dist/admin/admin.html { deny all; return 403; }
+    # HAProxy
+    haproxy.org/timeout-tunnel: "{{ .Values.ingress.parameters.bodyTimeout.collabora }}s"
+    haproxy.org/backend-config-snippet: |
+       balance url_param WOPISrc check_post
+       hash-type consistent
+    # HAProxy - Community: https://haproxy-ingress.github.io/
+    haproxy-ingress.github.io/timeout-tunnel: "{{ .Values.ingress.parameters.bodyTimeout.collabora }}s"
+    haproxy-ingress.github.io/balance-algorithm: "url_param WOPISrc check_post"
+    haproxy-ingress.github.io/config-backend: |
+      hash-type consistent
+      # block admin urls from outside
+      acl admin_url path_beg /cool/getMetrics
+      acl admin_url path_beg /cool/adminws/
+      acl admin_url path_beg /browser/dist/admin/admin.html
+      http-request deny if admin_url
+  enabled: {{ .Values.ingress.enabled }}
+  className: {{ .Values.ingress.ingressClassName | quote }}
+  hosts:
+    - host: "{{ .Values.global.hosts.collabora }}.{{ .Values.global.domain }}"
+      paths:
+        - path: "/"
+          pathType: "Prefix"
+  tls:
+    - secretName: {{ .Values.ingress.tls.secretName | quote }}
+      hosts:
+        - "{{ .Values.global.hosts.collabora }}.{{ .Values.global.domain }}"
+
+podAnnotations: {}
+
+podSecurityContext:
+  fsGroup: 100
+
+prometheus:
+  servicemonitor:
+    enabled: {{ .Values.monitoring.prometheus.serviceMonitors.enabled }}
+    labels:
+      {{ .Values.monitoring.prometheus.serviceMonitors.labels | toYaml | nindent 6 }}
+  rules:
+    enabled: {{ .Values.monitoring.prometheus.prometheusRules.enabled }}
+    additionalLabels:
+      {{ .Values.monitoring.prometheus.prometheusRules.labels | toYaml | nindent 6 }}
+
+replicaCount: {{ .Values.replicas.collabora }}
+
+resources:
+  {{ .Values.resources.collabora | toYaml | nindent 2 }}
+
+securityContext:
+  allowPrivilegeEscalation: true
+  privileged: false
+  readOnlyRootFilesystem: false
+  runAsNonRoot: true
+  runAsUser: 100
+  runAsGroup: 101
+  seccompProfile:
+    type: "RuntimeDefault"
+  capabilities:
+    drop:
+      - "ALL"
+    add:
+      - "CHOWN"
+      - "FOWNER"
+      - "SYS_CHROOT"
+
+  seLinuxOptions:
+    {{ .Values.seLinuxOptions.collabora | toYaml | nindent 4 }}
+serviceAccount:
+  create: true
+...

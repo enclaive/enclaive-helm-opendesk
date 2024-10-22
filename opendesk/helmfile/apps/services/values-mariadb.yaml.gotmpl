@@ -1,0 +1,90 @@
+{{/*
+SPDX-FileCopyrightText: 2024 Zentrum für Digitale Souveränität der Öffentlichen Verwaltung (ZenDiS) GmbH
+SPDX-FileCopyrightText: 2023 Bundesministerium des Innern und für Heimat, PG ZenDiS "Projektgruppe für Aufbau ZenDiS"
+SPDX-License-Identifier: Apache-2.0
+*/}}
+---
+cleanup:
+  deletePodsOnSuccess: {{ .Values.debug.cleanup.deletePodsOnSuccess }}
+  deletePodsOnSuccessTimeout: {{ .Values.debug.cleanup.deletePodsOnSuccessTimeout }}
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - "ALL"
+  enabled: true
+  privileged: false
+  runAsUser: 1001
+  runAsGroup: 1001
+  seccompProfile:
+    type: "RuntimeDefault"
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  seLinuxOptions:
+    {{ .Values.seLinuxOptions.mariadb | toYaml | nindent 4 }}
+
+global:
+  imagePullSecrets:
+    {{ .Values.global.imagePullSecrets | toYaml | nindent 4 }}
+
+image:
+  registry: {{ coalesce .Values.repositories.image.dockerHub .Values.global.imageRegistry .Values.images.mariadb.registry | quote }}
+  repository: {{ .Values.images.mariadb.repository | quote }}
+  tag: {{ .Values.images.mariadb.tag | quote }}
+  imagePullPolicy: {{ .Values.global.imagePullPolicy | quote }}
+
+job:
+  enabled: true
+  retries: 10
+  wait: 30
+  users:
+    - username: {{ .Values.databases.nextcloud.username | quote }}
+      password: {{ .Values.secrets.mariadb.nextcloudUser | quote}}
+      connectionLimit: {{ .Values.databases.nextcloud.connectionLimit | default .Values.databases.defaults.userConnectionLimit }}
+    # OX and XWiki are using the db's `root` users (see `database.yaml`). So we are statically referencing their dedicated
+    # users for the moment.
+    - username: "openxchange_user"
+    # - username: {{ .Values.databases.xwiki.username | quote }}
+      password: {{ .Values.secrets.mariadb.openxchangeUser | quote }}
+      connectionLimit: {{ .Values.databases.oxAppsuite.connectionLimit | default .Values.databases.defaults.userConnectionLimit }}
+    - username: "xwiki_user"
+    # - username: {{ .Values.databases.oxAppsuite.username | quote }}
+      password: {{ .Values.secrets.mariadb.xwikiUser | quote }}
+      connectionLimit: {{ .Values.databases.xwiki.connectionLimit | default .Values.databases.defaults.userConnectionLimit }}
+  databases:
+    - name: {{ .Values.databases.nextcloud.name | quote }}
+      user: {{ .Values.databases.nextcloud.username | quote }}
+    # OX and XWiki are using the db's `root` users (see `database.yaml`). So we are statically referencing their dedicated
+    # users for the moment.
+    - name: "openxchange"
+      user: "openxchange_user"
+    # - name: {{ .Values.databases.oxAppsuite.name | quote }}
+    #   user: {{ .Values.databases.oxAppsuite.username | quote }}
+    - name: "xwiki"
+      user: "xwiki_user"
+    # - name: {{ .Values.databases.xwiki.name | quote }}
+    #   user: {{ .Values.databases.xwiki.username | quote }}
+
+mariadb:
+  rootPassword: {{ .Values.secrets.mariadb.rootPassword | quote }}
+
+persistence:
+  storageClass: {{ .Values.persistence.storageClassNames.RWO | quote }}
+  size: {{ .Values.persistence.size.mariadb | quote }}
+
+podAnnotations:
+  argocd.argoproj.io/hook: "PostSync"
+  argocd.argoproj.io/hook-delete-policy: "BeforeHookCreation"
+
+podSecurityContext:
+  enabled: true
+  fsGroup: 1001
+  fsGroupChangePolicy: "OnRootMismatch"
+
+replicaCount: {{ .Values.replicas.mariadb }}
+
+resources:
+  {{ .Values.resources.mariadb | toYaml | nindent 2 }}
+
+...

@@ -1,0 +1,85 @@
+{{/*
+SPDX-FileCopyrightText: 2024 Zentrum für Digitale Souveränität der Öffentlichen Verwaltung (ZenDiS) GmbH
+SPDX-FileCopyrightText: 2023 Bundesministerium des Innern und für Heimat, PG ZenDiS "Projektgruppe für Aufbau ZenDiS"
+SPDX-License-Identifier: Apache-2.0
+*/}}
+---
+certificate:
+  secretName: {{ .Values.ingress.tls.secretName | quote }}
+  request:
+    enabled: false
+
+containerSecurityContext:
+  allowPrivilegeEscalation: true
+  capabilities: {}
+  enabled: true
+  seccompProfile:
+    type: "RuntimeDefault"
+  readOnlyRootFilesystem: false
+  runAsNonRoot: false
+  runAsUser: 0
+  runAsGroup: 0
+  privileged: true
+  seLinuxOptions:
+    {{ .Values.seLinuxOptions.postfix | toYaml | nindent 4 }}
+
+global:
+  imagePullSecrets:
+    {{ .Values.global.imagePullSecrets | toYaml | nindent 4 }}
+
+image:
+  registry: {{ coalesce .Values.repositories.image.registryOpencodeDe .Values.global.imageRegistry .Values.images.postfix.registry | quote }}
+  repository: {{ .Values.images.postfix.repository | quote }}
+  tag: {{ .Values.images.postfix.tag | quote }}
+  imagePullPolicy: {{ .Values.global.imagePullPolicy | quote }}
+
+persistence:
+  size: {{ .Values.persistence.size.postfix | quote }}
+  storageClass: {{ .Values.persistence.storageClassNames.RWO | quote }}
+
+podSecurityContext:
+  enabled: true
+  fsGroup: 101
+
+postfix:
+  amavisHost: ""
+  amavisPortIn: ""
+  domain: {{ .Values.global.mailDomain | default .Values.global.domain | quote }}
+  hostname: "postfix"
+  inetProtocols: "ipv4"
+  milterDefaultAction: "accept"
+  overrides:
+    - fileName: "sasl_passwd.map"
+      content:
+        - {{ printf "%s %s:%s" .Values.smtp.host .Values.smtp.username .Values.smtp.password | quote }}
+  {{- if .Values.dkimpy.enabled }}
+  dkimpyHost: "opendesk-dkimpy-milter.{{ .Release.Namespace }}.svc.{{.Values.cluster.networking.domain }}:8892"
+  {{- end }}
+  rspamdHost: ""
+  relayHost: {{ if .Values.smtp.host }}{{ printf "[%s]:%d" .Values.smtp.host .Values.smtp.port | quote }}{{ else }}""{{ end }}
+  relayNets: {{ join " " .Values.cluster.networking.cidr | quote }}
+  smtpSASLAuthEnable: "yes"
+  smtpSASLPasswordMaps: "lmdb:/etc/postfix/sasl_passwd.map"
+  smtpUseTLS: "yes"
+  smtpdSASLAuthEnable: "no"
+  smtpdSASLSecurityOptions: "noanonymous"
+  smtpdSASLType: "dovecot"
+  smtpdUseTLS: "yes"
+  smtpdTLSCertFile: "/etc/tls/tls.crt"
+  smtpdKeyFile: "/etc/tls/tls.key"
+  smtpdSASLPath: "inet:dovecot:3659"
+  {{- if .Values.clamavDistributed.enabled }}
+  smtpdMilters: "inet:clamav-milter:7357"
+  {{- else if .Values.clamavSimple.enabled }}
+  smtpdMilters: "inet:clamav-simple:7357"
+  {{- end }}
+  virtualMailboxDomains: {{ .Values.global.mailDomain | default .Values.global.domain | quote }}
+  virtualTransport: "lmtps:dovecot:24"
+
+podAnnotations: {}
+
+replicaCount: {{ .Values.replicas.postfix }}
+
+resources:
+  {{ .Values.resources.postfix | toYaml | nindent 2 }}
+...

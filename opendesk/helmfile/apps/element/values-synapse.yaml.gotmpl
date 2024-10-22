@@ -1,0 +1,161 @@
+{{/*
+SPDX-FileCopyrightText: 2024 Zentrum für Digitale Souveränität der Öffentlichen Verwaltung (ZenDiS) GmbH
+SPDX-FileCopyrightText: 2023 Bundesministerium des Innern und für Heimat, PG ZenDiS "Projektgruppe für Aufbau ZenDiS"
+SPDX-License-Identifier: Apache-2.0
+*/}}
+---
+configuration:
+  additionalConfiguration:
+    user_directory:
+      enabled: true
+      search_all_users: true
+    room_prejoin_state:
+      additional_event_types:
+        - "m.space.parent"
+        - "net.nordeck.meetings.metadata"
+        - "m.room.power_levels"
+    # To allow intercom service logins for the users and also allow proper testautomation we want to raise the
+    # ratelimit in a reasonable manner.
+    # https://matrix-org.github.io/synapse/v1.59/usage/configuration/config_documentation.html#ratelimiting
+    rc_login:
+      account:
+        per_second: 2
+        burst_count: 8
+      address:
+        per_second: 2
+        burst_count: 12
+
+  database:
+    host: {{ .Values.databases.synapse.host | quote }}
+    name: {{ .Values.databases.synapse.name | quote }}
+    user: {{ .Values.databases.synapse.username | quote }}
+    password: {{ .Values.databases.synapse.password | default .Values.secrets.postgresql.matrixUser | quote }}
+
+  homeserver:
+    serverName: {{ .Values.global.matrixDomain | default .Values.global.domain }}
+    appServiceConfigs:
+      - as_token: {{ .Values.secrets.intercom.synapseAsToken | quote }}
+        hs_token: {{ .Values.secrets.intercom.synapseAsToken | quote }}
+        id: intercom-service
+        namespaces:
+          users:
+            - exclusive: false
+              regex: "@.*"
+        url: null
+        sender_localpart: intercom-service
+      - as_token: {{ .Values.secrets.oxAppsuite.synapseAsToken | quote }}
+        hs_token: {{ .Values.secrets.oxAppsuite.synapseAsToken | quote }}
+        id: ox-appsuite
+        namespaces:
+          users:
+            - exclusive: false
+              regex: "@.*"
+        url: null
+        sender_localpart: ox-appsuite
+
+    presence:
+      enabled: {{ .Values.functional.dataProtection.matrixPresence.enabled }}
+
+    profile:
+      allowUsersToUpdateDisplayname: {{ .Values.functional.chat.matrix.profile.allowUsersToUpdateDisplayname }}
+
+    smtp:
+      senderAddress: "{{ .Values.smtp.localpartNoReply }}@{{ .Values.global.domain }}"
+      host: {{ printf "%s.%s.svc.%s" "postfix" (.Values.postfix.namespace | default .Release.Namespace) .Values.cluster.networking.domain | quote }}
+      port: 25
+      tls: false
+      starttls: false
+      username: ""
+      password: ""
+
+    oidc:
+      clientId: "opendesk-matrix"
+      clientSecret: {{ .Values.secrets.keycloak.clientSecret.matrix | quote }}
+      issuer: "https://{{ .Values.global.hosts.keycloak }}.{{ .Values.global.domain }}/realms/{{ .Values.platform.realm }}"
+      matrixIdLocalpart: {{ if .Values.functional.chat.matrix.profile.useImmutableIdentifierForLocalpart }}"opendesk_useruuid"{{ else }}"opendesk_username"{{ end }}
+      scopes:
+        - "openid"
+        - "opendesk-matrix-scope"
+
+    turn:
+      sharedSecret: {{ .Values.turn.credentials | quote }}
+      servers:
+        {{- if .Values.turn.tls.host }}
+        - server: {{ .Values.turn.tls.host | quote }}
+          port: {{ .Values.turn.tls.port }}
+          transport: {{ .Values.turn.transport | quote }}
+        {{- else if .Values.turn.server.host }}
+        - server: {{ .Values.turn.server.host | quote }}
+          port: {{ .Values.turn.server.port }}
+          transport: {{ .Values.turn.transport | quote }}
+        {{- end }}
+
+    guestModule:
+      enabled: true
+      image:
+        imagePullPolicy: {{ .Values.global.imagePullPolicy | quote }}
+        registry: {{ coalesce .Values.repositories.image.registryOpencodeDe .Values.global.imageRegistry .Values.images.synapseGuestModule.registry | quote }}
+        repository: {{ .Values.images.synapseGuestModule.repository | quote }}
+        tag: {{ .Values.images.synapseGuestModule.tag | quote }}
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - "ALL"
+  enabled: true
+  privileged: false
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 10991
+  runAsGroup: 10991
+  seccompProfile:
+    type: "RuntimeDefault"
+  seLinuxOptions:
+    {{ .Values.seLinuxOptions.synapse | toYaml | nindent 4 }}
+
+federation:
+  enabled: {{ .Values.functional.externalServices.matrix.federation.enabled }}
+  ingress:
+    host: "{{ .Values.global.hosts.synapseFederation }}.{{ .Values.global.domain }}"
+    enabled: {{ .Values.ingress.enabled }}
+    ingressClassName: {{ .Values.ingress.ingressClassName | quote }}
+    tls:
+      enabled: {{ .Values.ingress.tls.enabled }}
+      secretName: {{ .Values.ingress.tls.secretName | quote }}
+
+global:
+  domain: {{ .Values.global.domain | quote }}
+  hosts:
+    {{ .Values.global.hosts | toYaml | nindent 4 }}
+  imagePullSecrets:
+    {{ .Values.global.imagePullSecrets | toYaml | nindent 4 }}
+
+image:
+  imagePullPolicy: {{ .Values.global.imagePullPolicy | quote }}
+  registry: {{ coalesce .Values.repositories.image.registryOpencodeDe .Values.global.imageRegistry .Values.images.synapse.registry | quote }}
+  repository: {{ .Values.images.synapse.repository | quote }}
+  tag: {{ .Values.images.synapse.tag | quote }}
+
+persistence:
+  size: {{ .Values.persistence.size.synapse | quote }}
+  storageClass: {{ .Values.persistence.storageClassNames.RWO | quote }}
+
+podAnnotations: {}
+
+podSecurityContext:
+  enabled: true
+  fsGroup: 10991
+
+readinessProbe:
+  initialDelaySeconds: 15
+  periodSeconds: 5
+
+replicaCount: {{ .Values.replicas.synapse }}
+
+resources:
+  {{ .Values.resources.synapse | toYaml | nindent 2 }}
+
+tls:
+  secretName: {{ if .Values.global.matrixDomain }}"opendesk-certificates-synapse-tls"{{ else }}"opendesk-certificates-tls"{{ end }}
+...

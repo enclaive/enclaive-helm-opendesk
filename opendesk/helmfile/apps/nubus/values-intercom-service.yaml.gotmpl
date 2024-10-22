@@ -1,0 +1,122 @@
+{{/*
+SPDX-FileCopyrightText: 2024 Zentrum für Digitale Souveränität der Öffentlichen Verwaltung (ZenDiS) GmbH
+SPDX-FileCopyrightText: 2023 Bundesministerium des Innern und für Heimat, PG ZenDiS "Projektgruppe für Aufbau ZenDiS"
+SPDX-License-Identifier: Apache-2.0
+*/}}
+---
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - "ALL"
+  enabled: true
+  privileged: false
+  runAsUser: 1000
+  runAsGroup: 1000
+  seccompProfile:
+    type: "RuntimeDefault"
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  seLinuxOptions:
+    {{ .Values.seLinuxOptions.intercom | toYaml | nindent 4 }}
+
+global:
+  domain: {{ .Values.global.domain | quote }}
+  hosts:
+    {{ .Values.global.hosts | toYaml | nindent 4 }}
+  imagePullSecrets:
+    {{ .Values.global.imagePullSecrets | toYaml | nindent 4 }}
+
+ics:
+  secret: {{ .Values.secrets.intercom.secret | quote }}
+  issuerBaseUrl: "https://{{ .Values.global.hosts.keycloak }}.{{ .Values.global.domain }}/realms/{{ .Values.platform.realm }}"
+  originRegex: "{{ .Values.global.domain }}"
+  userUniqueMapper: {{ if .Values.functional.chat.matrix.profile.useImmutableIdentifierForLocalpart }}"entryuuid"{{ else }}"phoenixusername"{{ end }}
+  keycloak:
+    realm: {{ .Values.platform.realm | quote }}
+  default:
+    domain: {{ .Values.global.domain | quote }}
+  oidc:
+    id: "opendesk-intercom"
+    secret: {{ .Values.secrets.keycloak.clientSecret.intercom | quote }}
+  matrix:
+    asSecret: {{ .Values.secrets.intercom.synapseAsToken | quote }}
+    subdomain: {{ .Values.global.hosts.synapse | quote }}
+    serverName: "{{ .Values.global.hosts.synapse }}.{{ .Values.global.domain }}"
+  nordeck:
+    subdomain: {{ .Values.global.hosts.matrixNeoDateFixBot | quote }}
+  portal:
+    apiKey: {{ .Values.secrets.centralnavigation.apiKey | quote }}
+  redis:
+    host: {{ .Values.cache.intercomService.host | quote }}
+    port: {{ .Values.cache.intercomService.port }}
+    password: {{ .Values.cache.intercomService.password | default .Values.secrets.redis.password | quote }}
+  openxchange:
+    oci: true
+    url: "https://{{ .Values.global.hosts.openxchange }}.{{ .Values.global.domain }}"
+    audience: "opendesk-oxappsuite"
+  nextcloud:
+    origin: {{ .Values.global.hosts.nextcloud | quote }}
+    subdomain: {{ .Values.global.hosts.nextcloud | quote }}
+    audience: "opendesk-nextcloud"
+image:
+  imagePullPolicy: {{ .Values.global.imagePullPolicy | quote }}
+  registry: {{ coalesce .Values.repositories.image.registryOpencodeDe .Values.global.imageRegistry .Values.images.intercom.registry | quote }}
+  repository: {{ .Values.images.intercom.repository | quote }}
+  tag: {{ .Values.images.intercom.tag | quote }}
+
+ingress:
+  host: "{{ .Values.global.hosts.intercomService }}.{{ .Values.global.domain }}"
+  enabled: {{ .Values.ingress.enabled }}
+  ingressClassName: {{ .Values.ingress.ingressClassName | quote }}
+  tls:
+    enabled: {{ .Values.ingress.tls.enabled }}
+    secretName: {{ .Values.ingress.tls.secretName | quote }}
+
+podAnnotations: {}
+
+podSecurityContext:
+  enabled: true
+  fsGroup: 1000
+  fsGroupChangePolicy: "Always"
+
+provisioning:
+  enabled: true
+  config:
+    nubusBaseUrl: "https://{{ .Values.global.hosts.intercomService }}.{{ .Values.global.domain }}"
+    keycloak:
+      url: "http://ums-keycloak:8080/realms/{{ .Values.platform.realm }}/"
+      username: "kcadmin"
+      realm: {{ .Values.platform.realm | quote }}
+      connection:
+        host: "{{ .Values.global.hosts.keycloak }}.{{ .Values.global.domain }}"
+        baseUrl: "http://ums-keycloak:8080"
+      credentialSecret:
+        name: "ums-opendesk-keycloak-credentials"
+        key: "admin_password"
+    ics_client:
+      clientSecret: {{ .Values.secrets.keycloak.clientSecret.intercom | quote }}
+      credentialSecret:
+        key: "ics_secret"
+  image:
+    imagePullPolicy: {{ .Values.global.imagePullPolicy | quote }}
+    registry: {{ coalesce .Values.repositories.image.registryOpencodeDe .Values.global.imageRegistry .Values.images.nubusWaitForDependency.registry | quote }}
+    repository: {{ .Values.images.nubusWaitForDependency.repository | quote }}
+    tag: {{ .Values.images.nubusWaitForDependency.tag | quote }}
+  provisioningImage:
+    imagePullPolicy: {{ .Values.global.imagePullPolicy | quote }}
+    registry: {{ coalesce .Values.repositories.image.registryOpencodeDe .Values.global.imageRegistry .Values.images.nubusKeycloakBootstrap.registry | quote }}
+    repository: {{ .Values.images.nubusKeycloakBootstrap.repository | quote }}
+    tag: {{ .Values.images.nubusKeycloakBootstrap.tag | quote }}
+  securityContext:
+    seccompProfile:
+      type: "RuntimeDefault"
+    seLinuxOptions:
+      {{ .Values.seLinuxOptions.intercom | toYaml | nindent 6 }}
+
+replicaCount: {{ .Values.replicas.intercomService }}
+
+resources:
+  {{ .Values.resources.intercomService | toYaml | nindent 2 }}
+
+...

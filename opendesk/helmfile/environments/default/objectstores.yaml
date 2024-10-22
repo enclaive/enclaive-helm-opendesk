@@ -1,0 +1,42 @@
+# SPDX-FileCopyrightText: 2024 Zentrum für Digitale Souveränität der Öffentlichen Verwaltung (ZenDiS) GmbH
+# SPDX-FileCopyrightText: 2023 Bundesministerium des Innern und für Heimat, PG ZenDiS "Projektgruppe für Aufbau ZenDiS"
+# SPDX-License-Identifier: Apache-2.0
+---
+objectstores:
+  migrations:
+    bucket: "migrations"
+    endpoint: ""
+    region: "eu-west-1"
+    secretKey: ""
+    username: "migration_user"
+    storageClass: "STANDARD"
+    useSSL: true
+    pathStyle: true
+    port: 443
+  nextcloud:
+    bucket: "nextcloud"
+    endpoint: ""
+    region: "eu-west-1"
+    secretKey: ""
+    username: "nextcloud_user"
+    storageClass: "STANDARD"
+    useSSL: true
+    pathStyle: true
+    port: 443
+  openproject:
+    bucket: "openproject"
+    directUploads: true
+    enableSignatureV4Streaming: true
+    endpoint: ""
+    region: "eu-west-1"
+    secretKey: ""
+    username: "openproject_user"
+    pathStyle: true
+    useIamProfile: false
+  nubus:
+    bucket: "ums"
+    endpoint: ""
+    region: "eu-west-1"
+    secretKey: ""
+    username: "ums_user"
+...

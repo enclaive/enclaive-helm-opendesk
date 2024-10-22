@@ -1,0 +1,659 @@
+# SPDX-FileCopyrightText: 2023 Bundesministerium des Innern und für Heimat, PG ZenDiS "Projektgruppe für Aufbau ZenDiS"
+# SPDX-FileCopyrightText: 2024 Zentrum für Digitale Souveränität der Öffentlichen Verwaltung (ZenDiS) GmbH
+# SPDX-License-Identifier: Apache-2.0
+---
+include:
+  - project: "${PROJECT_PATH_GITLAB_CONFIG_TOOLING}"
+    ref: "v2.4.2"
+    file:
+      - "ci/common/automr.yml"
+      - "ci/common/lint.yml"
+      - "ci/release-automation/semantic-release.yml"
+  - local: "/.gitlab/generate/generate-docs.yml"
+  - project: "${PROJECT_PATH_CUSTOM_ENVIRONMENT_CONFIG}"
+    file: "gitlab/environments.yaml"
+    ref: "main"
+  - local: "/.gitlab/lint/lint-opendesk.yml"
+    rules:
+      - if: >
+            $JOB_OPENDESK_LINTER_ENABLED == 'false' ||
+            $CI_PIPELINE_SOURCE =~ 'tags|merge_request_event|web|trigger|api'
+        when: "never"
+      - when: "always"
+  - local: "/.gitlab/lint/lint-kyverno.yml"
+    rules:
+      - if: >
+            $JOB_OPENDESK_LINTER_ENABLED == 'false' ||
+            $CI_PIPELINE_SOURCE =~ 'tags|merge_request_event|web|trigger|api'
+        when: "never"
+      - when: "always"
+
+stages:
+  - ".pre"
+  - "renovate"
+  - "scan"
+  - "automr"
+  - "env-cleanup"
+  - "env"
+  - "pre-services-deploy"
+  - "migrations-pre"
+  - "basic-services-deploy"
+  - "component-deploy-stage-1"
+  - "component-deploy-stage-2"
+  - "migrations-post"
+  - "lint"
+  - "tests"
+  - "env-stop"
+  - ".post"
+
+variables:
+  NAMESPACE:
+    description: "The name of namespaces to deploy to."
+    value: ""
+  CLUSTER:
+    description: "Which cluster to use. Cluster must be defined in `gitlab/environments.yaml` of the
+        repo that is included above using the env var `PROJECT_PATH_CUSTOM_ENVIRONMENT_CONFIG`:
+        ${PROJECT_PATH_CUSTOM_ENVIRONMENT_CONFIG}"
+    value: "dev"
+  MASTER_PASSWORD_WEB_VAR:
+    description: >
+      Optional: Provide a seed to be used for generation of all internal secrets.
+      Same seed will result in same secrets.
+    value: ""
+  ENV_STOP_BEFORE:
+    description: "Stop environment/delete namespace for the deployment."
+    value: "no"
+    options:
+      - "yes"
+      - "no"
+  DEBUG_ENABLED:
+    description: "Allows to set `debug.enabled` to true for a deployment, needs to be supported by stage specific\
+     configuration containting: `debug.enabled: {{ env \"DEBUG_ENABLED\" | default false }}`"
+    value: "no"
+    options:
+      - "yes"
+      - "no"
+  DEPLOY_ALL_COMPONENTS:
+    description: "Enable all component deployment (overwrites 'no' setting on component level)."
+    value: "no"
+    options:
+      - "yes"
+      - "no"
+  DEPLOY_MIGRATIONS:
+    description: "Deploy K8s job for migrations (pre & post)."
+    value: "no"
+    options:
+      - "yes"
+      - "no"
+  DEPLOY_SERVICES:
+    description: "Enable Service deployment."
+    value: "no"
+    options:
+      - "yes"
+      - "no"
+  DEPLOY_UMS:
+    description: "Enable Nubus deployment."
+    value: "no"
+    options:
+      - "yes"
+      - "no"
+  DEPLOY_COLLABORA:
+    description: "Enable Collabora deployment."
+    value: "no"
+    options:
+      - "yes"
+      - "no"
+  DEPLOY_CRYPTPAD:
+    description: "Enable CryptPad deployment."
+    value: "no"
+    options:
+      - "yes"
+      - "no"
+  DEPLOY_ELEMENT:
+    description: "Enable Element deployment."
+    value: "no"
+    options:
+      - "yes"
+      - "no"
+  DEPLOY_OX:
+    description: "Enable OX AppSuite8 deployment."
+    value: "no"
+    options:
+      - "yes"
+      - "no"
+  DEPLOY_XWIKI:
+    description: "Enable XWiki deployment."
+    value: "no"
+    options:
+      - "yes"
+      - "no"
+  DEPLOY_NEXTCLOUD:
+    description: "Enable Nextcloud deployment."
+    value: "no"
+    options:
+      - "yes"
+      - "no"
+  DEPLOY_OPENPROJECT:
+    description: "Enable OpenProject deployment."
+    value: "no"
+    options:
+      - "yes"
+      - "no"
+  DEPLOY_JITSI:
+    description: "Enable Jitsi deployment."
+    value: "no"
+    options:
+      - "yes"
+      - "no"
+  RUN_TESTS:
+    description: "Triggers execution of E2E-tests."
+    value: "no"
+    options:
+      - "yes"
+      - "no"
+  RUN_RENOVATE:
+    description: "Triggers the Renovate based check for dependency updates."
+    value: "no"
+    options:
+      - "yes"
+      - "no"
+  TESTS_BRANCH:
+    description: "Branch of E2E-tests on which the test pipeline is triggered"
+    value: "develop"
+  TESTS_PROJECT_URL:
+    description: "Project url for e2e-tests (`<domain of gitlab>/api/v4/projects/<id>`)"
+    value: "gitlab.opencode.de/api/v4/projects/1506"
+  TESTS_TESTSET:
+    description: "Selects testset for E2E-tests"
+    value: "Smoke"
+    options:
+      - "Regression"
+      - "Smoke"
+  TESTS_GRACE_PERIOD:
+    description: "A new deployment sometimes needs a few minutes to sort itself. If tested too early tests may fail. GRACE_PERIOD is the period in seconds that should be waited before running the tests."
+    value: "0"
+
+.deploy-common:
+  cache: {}
+  dependencies: []
+  extends: ".environments"
+  image: "registry.opencode.de/bmi/opendesk/components/platform-development/images/helm:1.1.0\
+          @sha256:74f349066ac5d20e3afaa6abd28781b4c8dc086f67e3d3c1b8345e4a9c3371b1"
+  script:
+    - "cd ${CI_PROJECT_DIR}/helmfile/apps/${COMPONENT}"
+    # MASTER_PASSWORD_WEB_VAR as precedence for MASTER_PASSWORD
+    - |
+      if ! [ -z "${MASTER_PASSWORD_WEB_VAR}" ]; then
+        export MASTER_PASSWORD="${MASTER_PASSWORD_WEB_VAR}"
+      fi;
+    - >
+      echo "Installing ${COMPONENT} into ${NAMESPACE} namespace as ${HELMFILE_ENVIRONMENT} environment on ${CLUSTER}"
+    - "helmfile --namespace ${NAMESPACE} apply --suppress-diff ${ADDITIONAL_ARGS}"
+  tags:
+    - "docker"
+    - "kubernetes"
+    - "${CLUSTER}"
+  variables:
+    HELMFILE_ENVIRONMENT: "dev"
+
+env-cleanup:
+  extends: ".deploy-common"
+  environment:
+    name: "${NAMESPACE}"
+    action: "stop"
+  needs: []
+  rules:
+    - if: >
+          $CI_PIPELINE_SOURCE =~ "web|schedules|trigger|api" &&
+          $NAMESPACE =~ /.+/ &&
+          $ENV_STOP_BEFORE != "no"
+      when: "on_success"
+  script:
+    - |
+      if [ "${OPENDESK_SLEDGEHAMMER_DESTROY_ENABLED}" = "yes" ]; then
+        for OPENDESK_RELEASE in $(helm ls -n ${NAMESPACE} -aq); do
+          helm uninstall -n ${NAMESPACE} ${OPENDESK_RELEASE};
+        done
+        kubectl delete pvc --all --namespace ${NAMESPACE};
+        kubectl delete jobs --all --namespace ${NAMESPACE};
+        kubectl delete configmaps --all --namespace ${NAMESPACE};
+      else
+        helmfile destroy --namespace ${NAMESPACE};
+      fi
+  stage: "env-cleanup"
+
+env-start:
+  environment:
+    name: "${NAMESPACE}"
+    on_stop: "env-stop"
+  extends: ".deploy-common"
+  image: "${CI_DEPENDENCY_PROXY_DIRECT_GROUP_IMAGE_PREFIX}/alpine/k8s:1.25.6"
+  rules:
+    - if: >
+          $CI_PIPELINE_SOURCE =~ "web|schedules|trigger|api" &&
+          $NAMESPACE =~ /.+/
+      when: "on_success"
+  script:
+    - "echo \"Deploying to Environment ${NAMESPACE} in ${CLUSTER} Cluster\""
+    - "kubectl create namespace ${NAMESPACE} --dry-run=client -o yaml | kubectl apply -f -"
+  stage: "env"
+
+policies-deploy:
+  stage: "pre-services-deploy"
+  extends: ".deploy-common"
+  rules:
+    - if: >
+          $CI_PIPELINE_SOURCE =~ "web|schedules|trigger|api" &&
+          $NAMESPACE =~ /.+/ &&
+          ($DEPLOY_ALL_COMPONENTS != "no" || $DEPLOY_SERVICES != "no")
+      when: "on_success"
+  variables:
+    COMPONENT: "services"
+    ADDITIONAL_ARGS: "-l name=opendesk-otterize"
+
+migrations-pre:
+  stage: "migrations-pre"
+  extends: ".deploy-common"
+  rules:
+    - if: >
+          $CI_PIPELINE_SOURCE =~ "web|schedules|trigger|api" &&
+          $NAMESPACE =~ /.+/ &&
+          ($DEPLOY_ALL_COMPONENTS != "no" || $DEPLOY_MIGRATIONS != "no")
+      when: "on_success"
+  variables:
+    COMPONENT: "migrations-pre"
+
+migrations-post:
+  stage: "migrations-post"
+  extends: ".deploy-common"
+  rules:
+    - if: >
+          $CI_PIPELINE_SOURCE =~ "web|schedules|trigger|api" &&
+          $NAMESPACE =~ /.+/ &&
+          ($DEPLOY_ALL_COMPONENTS != "no" || $DEPLOY_MIGRATIONS != "no")
+      when: "on_success"
+  variables:
+    COMPONENT: "migrations-post"
+
+services-deploy:
+  stage: "basic-services-deploy"
+  extends: ".deploy-common"
+  rules:
+    - if: >
+          $CI_PIPELINE_SOURCE =~ "web|schedules|trigger|api" &&
+          $NAMESPACE =~ /.+/ &&
+          ($DEPLOY_ALL_COMPONENTS != "no" || $DEPLOY_SERVICES != "no")
+      when: "on_success"
+  variables:
+    COMPONENT: "services"
+
+nubus-deploy:
+  stage: "component-deploy-stage-1"
+  extends: ".deploy-common"
+  rules:
+    - if: >
+          $CI_PIPELINE_SOURCE =~ "web|schedules|trigger|api" &&
+          $NAMESPACE =~ /.+/ &&
+          ($DEPLOY_ALL_COMPONENTS != "no" || $DEPLOY_UMS != "no")
+      when: "on_success"
+  variables:
+    COMPONENT: "nubus"
+
+ox-deploy:
+  stage: "component-deploy-stage-1"
+  extends: ".deploy-common"
+  timeout: "30m"
+  rules:
+    - if: >
+          $CI_PIPELINE_SOURCE =~ "web|schedules|trigger|api" &&
+          $NAMESPACE =~ /.+/ &&
+          ($DEPLOY_ALL_COMPONENTS != "no" || $DEPLOY_OX != "no")
+      when: "on_success"
+  variables:
+    COMPONENT: "open-xchange"
+
+xwiki-deploy:
+  stage: "component-deploy-stage-1"
+  extends: ".deploy-common"
+  rules:
+    - if: >
+          $CI_PIPELINE_SOURCE =~ "web|schedules|trigger|api" &&
+          $NAMESPACE =~ /.+/ &&
+          ($DEPLOY_ALL_COMPONENTS != "no" || $DEPLOY_XWIKI != "no")
+      when: "on_success"
+  variables:
+    COMPONENT: "xwiki"
+
+collabora-deploy:
+  stage: "component-deploy-stage-1"
+  extends: ".deploy-common"
+  rules:
+    - if: >
+          $CI_PIPELINE_SOURCE =~ "web|schedules|trigger|api" &&
+          $NAMESPACE =~ /.+/ &&
+          ($DEPLOY_ALL_COMPONENTS != "no" || $DEPLOY_NEXTCLOUD != "no" || $DEPLOY_COLLABORA != "no")
+      when: "on_success"
+  variables:
+    COMPONENT: "collabora"
+
+cryptpad-deploy:
+  stage: "component-deploy-stage-1"
+  extends: ".deploy-common"
+  rules:
+    - if: >
+          $CI_PIPELINE_SOURCE =~ "web|schedules|trigger|api" &&
+          $NAMESPACE =~ /.+/ &&
+          ($DEPLOY_ALL_COMPONENTS != "no" || $DEPLOY_NEXTCLOUD != "no" || $DEPLOY_CRYPTPAD != "no")
+      when: "on_success"
+  variables:
+    COMPONENT: "cryptpad"
+
+nextcloud-deploy:
+  stage: "component-deploy-stage-1"
+  extends: ".deploy-common"
+  rules:
+    - if: >
+          $CI_PIPELINE_SOURCE =~ "web|schedules|trigger|api" &&
+          $NAMESPACE =~ /.+/ &&
+          ($DEPLOY_ALL_COMPONENTS != "no" || $DEPLOY_NEXTCLOUD != "no")
+      when: "on_success"
+  variables:
+    COMPONENT: "nextcloud"
+
+openproject-deploy:
+  stage: "component-deploy-stage-1"
+  extends: ".deploy-common"
+  rules:
+    - if: >
+          $CI_PIPELINE_SOURCE =~ "web|schedules|trigger|api" &&
+          $NAMESPACE =~ /.+/ &&
+          ($DEPLOY_ALL_COMPONENTS != "no" || $DEPLOY_OPENPROJECT != "no")
+      when: "on_success"
+  variables:
+    COMPONENT: "openproject"
+
+openproject-bootstrap-deploy:
+  stage: "component-deploy-stage-2"
+  extends: ".deploy-common"
+  rules:
+    - if: >
+          $CI_PIPELINE_SOURCE =~ "web|schedules|trigger|api" &&
+          $NAMESPACE =~ /.+/ &&
+          ($DEPLOY_ALL_COMPONENTS != "no" || ($DEPLOY_OPENPROJECT != "no" && $DEPLOY_NEXTCLOUD != "no"))
+      when: "on_success"
+  variables:
+    COMPONENT: "openproject-bootstrap"
+
+jitsi-deploy:
+  stage: "component-deploy-stage-1"
+  extends: ".deploy-common"
+  rules:
+    - if: >
+          $CI_PIPELINE_SOURCE =~ "web|schedules|trigger|api" &&
+          $NAMESPACE =~ /.+/ &&
+          ($DEPLOY_ALL_COMPONENTS != "no" || $DEPLOY_JITSI != "no")
+      when: "on_success"
+  variables:
+    COMPONENT: "jitsi"
+
+element-deploy:
+  stage: "component-deploy-stage-1"
+  extends: ".deploy-common"
+  rules:
+    - if: >
+          $CI_PIPELINE_SOURCE =~ "web|schedules|trigger|api" &&
+          $NAMESPACE =~ /.+/ &&
+          ($DEPLOY_ALL_COMPONENTS != "no" || $DEPLOY_ELEMENT != "no")
+      when: "on_success"
+  variables:
+    COMPONENT: "element"
+
+env-stop:
+  extends: ".deploy-common"
+  environment:
+    name: "${NAMESPACE}"
+    action: "stop"
+  image: "${CI_DEPENDENCY_PROXY_DIRECT_GROUP_IMAGE_PREFIX}/alpine/k8s:1.25.6"
+  needs: []
+  rules:
+    - if: >
+          $CI_PIPELINE_SOURCE =~ "web|schedules|trigger|api" && $NAMESPACE =~ /.+/
+      when: "manual"
+  script:
+    - "echo 'We do not stop the env (delete the namespace) at the moment in this stage, as deleting a branches also
+      triggers this env-stop stage and we do not want this to happen.'"
+    # - kubectl delete namespace "${NAMESPACE}"
+  stage: "env-stop"
+  variables:
+    GIT_STRATEGY: "none"
+
+.ums-default-password: &ums-default-password
+  - |
+    DEFAULT_ADMINISTRATOR_PASSWORD=$(
+       kubectl \
+         -n ${NAMESPACE} \
+         get secret ums-nubus-credentials \
+         -o jsonpath='{.data.administrator_password}' | base64 -d \
+    )
+
+run-tests:
+  extends: ".deploy-common"
+  environment:
+    name: "${NAMESPACE}"
+  stage: "tests"
+  rules:
+    - if: >
+          $CI_PIPELINE_SOURCE =~ "web|schedules|trigger|api" && $NAMESPACE =~ /.+/ && $RUN_TESTS == "yes"
+      when: "on_success"
+  parallel:
+    matrix:
+      - LANGUAGE:
+          - "de"
+          - "en"
+  script:
+    - *ums-default-password
+    - |
+      curl --request POST \
+      --header "Content-Type: application/json" \
+      --data "{ \
+        \"ref\": \"${TESTS_BRANCH}\", \
+        \"token\": \"${CI_JOB_TOKEN}\", \
+        \"variables\": { \
+          \"operator\": \"${OPERATOR}\", \
+          \"cluster\": \"${CLUSTER}\", \
+          \"namespace\": \"${NAMESPACE}\", \
+          \"url\": \"https://portal.${DOMAIN}/\", \
+          \"language\": \"${LANGUAGE}\", \
+          \"udm_api_username\": \"Administrator\", \
+          \"udm_api_password\": \"${DEFAULT_ADMINISTRATOR_PASSWORD}\", \
+          \"screenshot_test\": \"yes\", \
+          \"screenshot_before_step\": \"yes\", \
+          \"screenshot_after_step\": \"yes\", \
+          \"screenshot_redirect_step\": \"yes\", \
+          \"testset\": \"${TESTS_TESTSET}\", \
+          \"testprofile\": \"Namespace\", \
+          \"gitlab_functional_yaml\": \"https://gitlab.opencode.de/api/v4/projects/1317/repository/files/helmfile%2Fenvironments%2Fdefault%2Ffunctional.yaml?ref=develop\", \
+          \"gitlab_env_namespace_template\": \"https://gitlab.opencode.de/api/v4/projects/1564/repository/files/environments%2F{operator}%2F{cluster}%2F{namespace}.yaml.gotmpl?ref=main\", \
+          \"gitlab_default_env_namespace\": \"values\", \
+          \"GRACE_PERIOD\": \"${TESTS_GRACE_PERIOD}\" \
+        } \
+      }" \
+      "https://${TESTS_PROJECT_URL}/trigger/pipeline"
+  retry: 1
+
+avscan-prepare:
+  stage: ".pre"
+  rules:
+    - if: >
+          $JOB_AVSCAN_ENABLED != 'false' &&
+          $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH &&
+          $CI_PIPELINE_SOURCE =~ "push|merge_request_event"
+      when: "always"
+    - when: "never"
+  image: "${CI_DEPENDENCY_PROXY_DIRECT_GROUP_IMAGE_PREFIX}/mikefarah/yq"
+  script:
+    - |
+      cat << 'EOF' > dynamic-scans.yml
+      ---
+      stages:
+        - "scan"
+
+      .container-clamav:
+        stage: "scan"
+        image: "registry.opencode.de/bmi/opendesk/components/platform-development/images/clamav-imagescan:1.0.0"
+        before_script:
+          - "sed -i \"/^DatabaseMirror .*$/c DatabaseMirror ${DATABASE_MIRROR}\" /etc/clamav/freshclam.conf"
+          - "freshclam"
+          - "mkdir /scan"
+        script:
+          - "export IMAGE=${AV_SCAN_PROXY:-${CONTAINER_REGISTRY}}/${CONTAINER_IMAGE}:${CONTAINER_TAG}"
+          - "echo Pulling and scanning $IMAGE..."
+          - "crane pull $IMAGE /scan/image.tar"
+          - "clamscan /scan"
+        variables:
+          CONTAINER_IMAGE: ""
+          CONTAINER_REGISTRY: ""
+          CONTAINER_TAG: ""
+          DATABASE_MIRROR: "https://registry.open-de.sk/repository/clamavdb.c3sl.ufpr.br"
+      EOF
+    - >
+      yq '.images
+      | with_entries(.key |= "scan-" + .)
+      | .[].extends=".container-clamav"
+      | with(.[]; .variables.CONTAINER_IMAGE = .repository
+      | .variables.CONTAINER_TAG = .tag | .variables.CONTAINER_REGISTRY = .registry)
+      | del(.[].repository)
+      | del(.[].tag)
+      | del(.[].registry)'
+      helmfile/environments/default/images.yaml
+      >> dynamic-scans.yml
+  artifacts:
+    paths:
+      - "dynamic-scans.yml"
+
+avscan-start:
+  stage: "scan"
+  rules:
+    - if: >
+        $JOB_AVSCAN_ENABLED != 'false' &&
+        $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH &&
+        $CI_PIPELINE_SOURCE =~ "push|merge_request_event"
+      when: "always"
+    - when: "never"
+  trigger:
+    include:
+      - artifact: "dynamic-scans.yml"
+        job: "avscan-prepare"
+    strategy: "depend"
+
+# Declare .environments which is in environments repository. In case it is not available
+# 'cache' is used because job must contain at least one key, so cache is just a dummy key.
+.environments:
+  cache: {}
+
+# Overwrite shared settings
+.common-semantic-release:
+  image: "registry.opencode.de/bmi/opendesk/components/platform-development/images/semantic-release:1.1.0"
+  tags: []
+
+conventional-commits-linter:
+  rules:
+    - if: >
+          $RUN_RENOVATE == "yes" ||
+          $JOB_CONVENTIONAL_COMMITS_LINTER_ENABLED == 'false' ||
+          $CI_PIPELINE_SOURCE =~ 'tags|merge_request_event'
+      when: "never"
+    - when: "always"
+
+common-yaml-linter:
+  rules:
+    - if: "$JOB_COMMON_YAML_LINTER_ENABLED == 'false' || $CI_PIPELINE_SOURCE =~ 'tags|web|merge_request_event'"
+      when: "never"
+    - when: "always"
+
+reuse-linter:
+  allow_failure: false
+  rules:
+    - if: "$JOB_REUSE_LINTER_ENABLED == 'false' || $CI_PIPELINE_SOURCE =~ 'tags|web|merge_request_event'"
+      when: "never"
+    - when: "always"
+
+generate-release-version:
+  rules:
+    - if: >
+        $JOB_RELEASE_ENABLED != 'false' &&
+        $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH &&
+        $CI_PIPELINE_SOURCE =~ "push|merge_request_event"
+      when: "on_success"
+
+release:
+  rules:
+    - if: >
+        $JOB_AVSCAN_ENABLED != 'false' &&
+        $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH &&
+        $CI_PIPELINE_SOURCE =~ "push|merge_request_event"
+      when: "on_success"
+  script:
+    - >
+      export RELEASE_VERSION=$(semantic-release --dry-run --branches $CI_COMMIT_REF_NAME --plugins
+      "@semantic-release/gitlab" | grep -oP "Published release [0-9]+\.[0-9]+\.[0-9]+ on" |
+      grep -oP "[0-9]+\.[0-9]+\.[0-9]+")
+    - |
+      if [ -z "${RELEASE_VERSION}" ]; then
+        echo "RELEASE_VERSION=$(git describe --tags --abbrev=0 | sed s@^v@@g )"
+      else
+        echo "RELEASE_VERSION=${RELEASE_VERSION}"
+      fi
+    - |
+      echo -e "\n[INFO] Writing data to helm value file..."
+      cat <<EOF >helmfile/environments/default/global.generated.yaml
+      # SPDX-FileCopyrightText: 2024 Zentrum für Digitale Souveränität der Öffentlichen Verwaltung (ZenDiS) GmbH
+      # SPDX-License-Identifier: Apache-2.0
+      ---
+      global:
+        systemInformation:
+          releaseVersion: "v$(echo -E "$RELEASE_VERSION")"
+      ...
+      EOF
+    - |
+      cat << 'EOF' > ${CI_PROJECT_DIR}/.releaserc
+      {
+        "branches": ["main"],
+        "plugins": [
+          "@semantic-release/gitlab",
+          "@semantic-release/release-notes-generator",
+          "@semantic-release/changelog",
+          ["@semantic-release/git", {
+            "assets": [
+              "charts/**/Chart.yaml",
+              "CHANGELOG.md",
+              "charts/**/README.md",
+              "helmfile/environments/default/global.generated.yaml",
+              ".kyverno/kyverno-test.yaml",
+              "docs"
+            ],
+            "message": "chore(release): ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"
+          }]
+        ]
+      }
+      EOF
+    - "semantic-release"
+  needs:
+    - "generate-docs"
+
+renovate:
+  rules:
+    - if: >
+        $RUN_RENOVATE == "yes"
+      when: "on_success"
+  # The `-full` image does not install the dependencies on the fly, that is our preferred approach
+  image: "${CI_DEPENDENCY_PROXY_DIRECT_GROUP_IMAGE_PREFIX}/renovate/renovate:37.356-full"
+  variables:
+    RENOVATE_CONFIG_FILE: "${CI_PROJECT_DIR}/.renovate/config.yaml"
+    RENOVATE_ENDPOINT: "${CI_API_V4_URL}"
+    # Increase the renovatebot log level on stdout
+    LOG_LEVEL: "DEBUG"
+  script:
+    - "renovate ${RENOVATE_EXTRA_FLAGS}"
+  stage: "renovate"
+...
