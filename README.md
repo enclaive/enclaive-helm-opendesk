@@ -4,7 +4,8 @@ Release based on tag `v1.0.0` from the original [repo](https://gitlab.opencode.d
 
 ## Adjustments 
 
-- Increased timeout for `jitsi` from `900` to `1200` [Link](/opendesk/helmfile/apps/jitsi/helmfile-child.yaml.gotmpl#L23) 
+- Increased timeout for `jitsi` from `900` to `1200` [Link](/opendesk/helmfile/apps/jitsi/helmfile-child.yaml.gotmpl#L23)
+- Increased timeout for `opendesk-nextcloud-management` from `900` to `1200` [Link](/opendesk/helmfile/apps/nextcloud/helmfile-child.yaml.gotmpl#L32)
 
 ## Infrastructure
 

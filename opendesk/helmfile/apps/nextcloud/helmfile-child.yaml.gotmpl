@@ -29,7 +29,7 @@ releases:
     waitForJobs: true
     wait: true
     installed: {{ .Values.nextcloud.enabled }}
-    timeout: 900
+    timeout: 1200
   - name: "opendesk-nextcloud"
     chart: "nextcloud-repo/{{ .Values.charts.nextcloud.name }}"
     version: "{{ .Values.charts.nextcloud.version }}"
